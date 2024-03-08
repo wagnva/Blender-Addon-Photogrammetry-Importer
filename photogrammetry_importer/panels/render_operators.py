@@ -89,7 +89,7 @@ class ExportOpenGLRenderAnimationOperator(bpy.types.Operator, ExportHelper):
     bl_label = "Export Point Cloud Renderings as Image Sequence"
     bl_description = "Use an animated camera to render the point cloud."
 
-    # Hide the porperty by using a normal string instad of a string property
+    # Hide the property by using a normal string instead of a string property
     filename_ext = ""
 
     @classmethod

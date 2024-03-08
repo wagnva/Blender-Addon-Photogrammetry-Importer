@@ -4,9 +4,13 @@ from bpy.props import (
     EnumProperty,
     IntProperty,
     PointerProperty,
+    BoolProperty
 )
 from photogrammetry_importer.panels.view_synthesis_operators import (
-    RunViewSynthesisOperator,
+    RunViewSynthesisOperator, RunViewSynthesisAnimOperator
+)
+from photogrammetry_importer.blender_utility.retrieval_utility import (
+    get_selected_camera,
 )
 
 
@@ -74,6 +78,11 @@ class ViewSynthesisPanelSettings(bpy.types.PropertyGroup):
         " synthesis. This allows to rotate the corresponding input scene.",
         default="OpenGL Point Cloud",
     )
+    use_camera_keyframes_for_rendering: BoolProperty(
+        name="Use Camera Keyframes",
+        description="Use the Camera Keyframes instead of Animation Frames.",
+        default=True,
+    )
 
 
 class ViewSynthesisPanel(bpy.types.Panel):
@@ -99,6 +108,7 @@ class ViewSynthesisPanel(bpy.types.Panel):
             type=ViewSynthesisPanelSettings
         )
         bpy.utils.register_class(RunViewSynthesisOperator)
+        bpy.utils.register_class(RunViewSynthesisAnimOperator)
 
     @classmethod
     def unregister(cls):
@@ -106,12 +116,14 @@ class ViewSynthesisPanel(bpy.types.Panel):
         bpy.utils.unregister_class(ViewSynthesisPanelSettings)
         del bpy.types.Scene.view_synthesis_panel_settings
         bpy.utils.unregister_class(RunViewSynthesisOperator)
+        bpy.utils.unregister_class(RunViewSynthesisAnimOperator)
 
     def draw(self, context):
         """Draw the panel with corrresponding properties and operators."""
         settings = context.scene.view_synthesis_panel_settings
         layout = self.layout
         view_synthesis_box = layout.box()
+        selected_cam = get_selected_camera()
 
         row = view_synthesis_box.row()
         row.prop(settings, "execution_environment", text="Script Environment")
@@ -166,3 +178,17 @@ class ViewSynthesisPanel(bpy.types.Panel):
 
         row = view_synthesis_box.row()
         row.operator(RunViewSynthesisOperator.bl_idname)
+
+        # Render Sequence Settings + Operator
+        row = view_synthesis_box.row()
+        row.prop(
+            settings,
+            "use_camera_keyframes_for_rendering",
+            text="Use Camera Keyframes",
+        )
+        row.enabled = (
+            selected_cam is not None
+            and selected_cam.animation_data is not None
+        )
+        row = view_synthesis_box.row()
+        row.operator(RunViewSynthesisAnimOperator.bl_idname)
