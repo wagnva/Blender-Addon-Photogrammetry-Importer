@@ -7,7 +7,7 @@ from bpy.props import (
     BoolProperty
 )
 from photogrammetry_importer.panels.view_synthesis_operators import (
-    RunViewSynthesisOperator, RunViewSynthesisAnimOperator
+    RunViewSynthesisOperator, ExportViewSynthesisOperator, ExportViewSynthesisAnimOperator
 )
 from photogrammetry_importer.blender_utility.retrieval_utility import (
     get_selected_camera,
@@ -51,11 +51,6 @@ class ViewSynthesisPanelSettings(bpy.types.PropertyGroup):
         description="Additional system paths required to run the script. Two "
         "paths must be separated by a whitespace.",
         default="path/to/instant-ngp/build",
-    )
-    additional_output_dp: StringProperty(
-        name="Additional Path for Script to store additional Output",
-        description="Additional output paths given to the script to store additional output such as visualizations.",
-        default="path/to/a/dir",
     )
     view_synthesis_executable_fp: StringProperty(
         name="View Synthesis Script File Name",
@@ -108,7 +103,8 @@ class ViewSynthesisPanel(bpy.types.Panel):
             type=ViewSynthesisPanelSettings
         )
         bpy.utils.register_class(RunViewSynthesisOperator)
-        bpy.utils.register_class(RunViewSynthesisAnimOperator)
+        bpy.utils.register_class(ExportViewSynthesisOperator)
+        bpy.utils.register_class(ExportViewSynthesisAnimOperator)
 
     @classmethod
     def unregister(cls):
@@ -116,7 +112,8 @@ class ViewSynthesisPanel(bpy.types.Panel):
         bpy.utils.unregister_class(ViewSynthesisPanelSettings)
         del bpy.types.Scene.view_synthesis_panel_settings
         bpy.utils.unregister_class(RunViewSynthesisOperator)
-        bpy.utils.unregister_class(RunViewSynthesisAnimOperator)
+        bpy.utils.unregister_class(ExportViewSynthesisOperator)
+        bpy.utils.unregister_class(ExportViewSynthesisAnimOperator)
 
     def draw(self, context):
         """Draw the panel with corrresponding properties and operators."""
@@ -153,12 +150,6 @@ class ViewSynthesisPanel(bpy.types.Panel):
         row = view_synthesis_box.row()
         row.prop(
             settings,
-            "additional_output_dp",
-            text="Additional Output Path",
-        )
-        row = view_synthesis_box.row()
-        row.prop(
-            settings,
             "view_synthesis_executable_fp",
             text="Script",
         )
@@ -176,11 +167,18 @@ class ViewSynthesisPanel(bpy.types.Panel):
             settings, "rotation_anchor_obj_name", text="Rotation Anchor Object"
         )
 
-        row = view_synthesis_box.row()
+        view_synthesis_save_box = view_synthesis_box.box()
+        view_synthesis_save_box.label(text="Run View Synthesis for current Camera")
+        row = view_synthesis_save_box.row()
         row.operator(RunViewSynthesisOperator.bl_idname)
 
+        view_synthesis_export_box = view_synthesis_box.box()
+        view_synthesis_export_box.label(text="Export View Synthesis for current Camera")
+        row = view_synthesis_export_box.row()
+        row.operator(ExportViewSynthesisOperator.bl_idname)
+
         # Render Sequence Settings + Operator
-        row = view_synthesis_box.row()
+        row = view_synthesis_export_box.row()
         row.prop(
             settings,
             "use_camera_keyframes_for_rendering",
@@ -190,5 +188,5 @@ class ViewSynthesisPanel(bpy.types.Panel):
             selected_cam is not None
             and selected_cam.animation_data is not None
         )
-        row = view_synthesis_box.row()
-        row.operator(RunViewSynthesisAnimOperator.bl_idname)
+        row = view_synthesis_export_box.row()
+        row.operator(ExportViewSynthesisAnimOperator.bl_idname)

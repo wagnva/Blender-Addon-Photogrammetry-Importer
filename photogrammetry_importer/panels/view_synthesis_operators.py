@@ -13,6 +13,7 @@ from photogrammetry_importer.utility.np_utility import (
 )
 from photogrammetry_importer.blender_utility.retrieval_utility import (
     get_selected_camera,
+    get_scene_animation_indices
 )
 from photogrammetry_importer.blender_utility.logging_utility import log_report
 from photogrammetry_importer.importers.camera_utility import (
@@ -30,12 +31,59 @@ from photogrammetry_importer.process_communication.file_communication import (
 )
 
 
-class RunViewSynthesisOperator(bpy.types.Operator, ExportHelper):  # ImportHelper
-    """An Operator to save a rendering of the point cloud as Blender image."""
+def run_view_synth(scene, save_to_dp=None, op=None):
+    log_report(
+        "INFO", "Compute view synthesis for current camera: ...", op
+    )
+
+    command, temp_json_file, temp_array_file = create_instant_ngp_cmd(scene, output_dp=save_to_dp, op=op)
+
+    camera_relative_to_anchor, centroid_shift = shift_selected_camera_relative_to_anchor(scene)
+
+    # Call before executing the child process
+    InstantNGPFileHandler.write_instant_ngp_file(
+        temp_json_file.name,
+        [camera_relative_to_anchor],
+        ref_centroid_shift=centroid_shift,
+    )
+
+    child_process = subprocess.Popen(command)
+    child_process.communicate()
+
+    show_image_in_blender(temp_array_file, get_selected_camera())
+
+    cleanup_tmp_files(temp_json_file, temp_array_file)
+
+    log_report(
+        "INFO", "Compute view synthesis for current camera: Done", op
+    )
+    return {"FINISHED"}
+
+class RunViewSynthesisOperator(bpy.types.Operator):
+    """An Operator to use the camera to render the NeRF Model, saving the output as Blender Image"""
 
     bl_idname = "photogrammetry_importer.run_view_synthesis"
-    bl_label = "Run View Synthesis for Current Camera"
-    bl_description = "Export camera properties to Instant-NGP json."
+    bl_label = "Save as Blender Image"
+    bl_description = "Export camera properties to json and run the given script. The result is displayed as Blender Image"
+
+    @classmethod
+    def poll(cls, context):
+        """Return the availability status of the operator."""
+        cam = get_selected_camera()
+        return cam is not None
+
+    def execute(self, context):
+        """Compute a view synthesis for the current camera."""
+        return run_view_synth(context.scene, op=self)
+
+
+
+class ExportViewSynthesisOperator(bpy.types.Operator, ExportHelper):
+    """An Operator to use the camera to render the NeRF Model, saving the output to the specified location"""
+
+    bl_idname = "photogrammetry_importer.export_view_synthesis"
+    bl_label = "Export View Synthesis as Image"
+    bl_description = "Export camera properties to json and run the given script"
 
     # Hide the property by using a normal string instead of a string property
     filename_ext = ""
@@ -48,42 +96,15 @@ class RunViewSynthesisOperator(bpy.types.Operator, ExportHelper):  # ImportHelpe
 
     def execute(self, context):
         """Compute a view synthesis for the current camera."""
-
-        log_report(
-            "INFO", "Compute view synthesis for current camera: ...", self
-        )
-        scene = context.scene
-
-        command, temp_json_file, temp_array_file = create_instant_ngp_cmd(scene, self.filepath, op=self)
-
-        camera_relative_to_anchor, centroid_shift = shift_selected_camera_relative_to_anchor(scene)
-
-        # Call before executing the child process
-        InstantNGPFileHandler.write_instant_ngp_file(
-            temp_json_file.name,
-            [camera_relative_to_anchor],
-            ref_centroid_shift=centroid_shift,
-        )
-
-        child_process = subprocess.Popen(command)
-        child_process.communicate()
-
-        show_image_in_blender(temp_array_file, get_selected_camera())
-
-        cleanup_tmp_files(temp_json_file, temp_array_file)
-
-        log_report(
-            "INFO", "Compute view synthesis for current camera: Done", self
-        )
-        return {"FINISHED"}
+        return run_view_synth(context.scene, save_to_dp=self.filepath, op=self)
 
 
-class RunViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
+class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
     """An Operator to use the animation of the camera to render the NeRF Model"""
 
-    bl_idname = "photogrammetry_importer.run_view_synthesis_anim"
-    bl_label = "Run View Synthesis for Camera Sequence"
-    bl_description = "Export camera properties to Instant-NGP json for each animation frame."
+    bl_idname = "photogrammetry_importer.export_view_synthesis_anim"
+    bl_label = "Export View Synthesis as Image Sequence"
+    bl_description = "Export camera properties to json for each animation frame and run the given script"
 
     # Hide the property by using a normal string instead of a string property
     filename_ext = ""
@@ -98,7 +119,34 @@ class RunViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
         """Compute a view synthesis for the current camera."""
 
         log_report(
-            "INFO", "Compute view synthesis for current camera animation: Done", self
+            "INFO", "Export view synthesis for current camera with animation: ...", self
+        )
+        scene = context.scene
+
+        command, temp_json_file, temp_array_file = create_instant_ngp_cmd(scene, self.filepath, op=self)
+
+        animation_indices = get_scene_animation_indices()
+
+        cameras = []
+        for idx in animation_indices:
+            bpy.context.scene.frame_set(idx)
+            camera_relative_to_anchor, centroid_shift = shift_selected_camera_relative_to_anchor(scene)
+            cameras.append(camera_relative_to_anchor)
+
+        # Call before executing the child process
+        InstantNGPFileHandler.write_instant_ngp_file(
+            temp_json_file.name,
+            cameras,
+            ref_centroid_shift=centroid_shift,
+        )
+
+        child_process = subprocess.Popen(command)
+        child_process.communicate()
+
+        cleanup_tmp_files(temp_json_file, temp_array_file)
+
+        log_report(
+            "INFO", "Export view synthesis for current camera with Animation: Done", self
         )
         return {"FINISHED"}
 
