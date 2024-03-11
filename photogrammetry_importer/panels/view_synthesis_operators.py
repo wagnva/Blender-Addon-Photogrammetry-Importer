@@ -13,7 +13,8 @@ from photogrammetry_importer.utility.np_utility import (
 )
 from photogrammetry_importer.blender_utility.retrieval_utility import (
     get_selected_camera,
-    get_scene_animation_indices
+    get_scene_animation_indices,
+    get_object_animation_indices
 )
 from photogrammetry_importer.blender_utility.logging_utility import log_report
 from photogrammetry_importer.importers.camera_utility import (
@@ -125,7 +126,18 @@ class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
 
         command, temp_json_file, temp_array_file = create_instant_ngp_cmd(scene, self.filepath, op=self)
 
-        animation_indices = get_scene_animation_indices()
+        use_camera_keyframes = (
+            scene.view_synthesis_panel_settings.use_camera_keyframes_for_rendering
+        )
+        selected_cam = get_selected_camera()
+        if (
+                use_camera_keyframes
+                and selected_cam is not None
+                and selected_cam.animation_data is not None
+        ):
+            animation_indices = get_object_animation_indices(selected_cam)
+        else:
+            animation_indices = get_scene_animation_indices()
 
         cameras = []
         for idx in animation_indices:
