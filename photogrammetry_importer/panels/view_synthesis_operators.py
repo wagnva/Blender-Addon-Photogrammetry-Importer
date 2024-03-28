@@ -14,7 +14,7 @@ from photogrammetry_importer.utility.np_utility import (
 from photogrammetry_importer.blender_utility.retrieval_utility import (
     get_selected_camera,
     get_scene_animation_indices,
-    get_object_animation_indices
+    get_object_animation_indices,
 )
 from photogrammetry_importer.blender_utility.logging_utility import log_report
 from photogrammetry_importer.importers.camera_utility import (
@@ -33,13 +33,15 @@ from photogrammetry_importer.process_communication.file_communication import (
 
 
 def run_view_synth(scene, save_to_dp=None, op=None):
-    log_report(
-        "INFO", "Compute view synthesis for current camera: ...", op
+    log_report("INFO", "Compute view synthesis for current camera: ...", op)
+
+    command, temp_json_file, temp_array_file = create_instant_ngp_cmd(
+        scene, output_dp=save_to_dp, op=op
     )
 
-    command, temp_json_file, temp_array_file = create_instant_ngp_cmd(scene, output_dp=save_to_dp, op=op)
-
-    camera_relative_to_anchor, centroid_shift = shift_selected_camera_relative_to_anchor(scene)
+    camera_relative_to_anchor, centroid_shift = (
+        shift_selected_camera_relative_to_anchor(scene)
+    )
 
     # Call before executing the child process
     InstantNGPFileHandler.write_instant_ngp_file(
@@ -55,10 +57,9 @@ def run_view_synth(scene, save_to_dp=None, op=None):
 
     cleanup_tmp_files(temp_json_file, temp_array_file)
 
-    log_report(
-        "INFO", "Compute view synthesis for current camera: Done", op
-    )
+    log_report("INFO", "Compute view synthesis for current camera: Done", op)
     return {"FINISHED"}
+
 
 class RunViewSynthesisOperator(bpy.types.Operator):
     """An Operator to use the camera to render the NeRF Model, saving the output as Blender Image"""
@@ -78,13 +79,14 @@ class RunViewSynthesisOperator(bpy.types.Operator):
         return run_view_synth(context.scene, op=self)
 
 
-
 class ExportViewSynthesisOperator(bpy.types.Operator, ExportHelper):
     """An Operator to use the camera to render the NeRF Model, saving the output to the specified location"""
 
     bl_idname = "photogrammetry_importer.export_view_synthesis"
     bl_label = "Export View Synthesis as Image"
-    bl_description = "Export camera properties to json and run the given script"
+    bl_description = (
+        "Export camera properties to json and run the given script"
+    )
 
     # Hide the property by using a normal string instead of a string property
     filename_ext = ""
@@ -120,20 +122,24 @@ class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
         """Compute a view synthesis for the current camera."""
 
         log_report(
-            "INFO", "Export view synthesis for current camera with animation: ...", self
+            "INFO",
+            "Export view synthesis for current camera with animation: ...",
+            self,
         )
         scene = context.scene
 
-        command, temp_json_file, temp_array_file = create_instant_ngp_cmd(scene, self.filepath, op=self)
+        command, temp_json_file, temp_array_file = create_instant_ngp_cmd(
+            scene, self.filepath, op=self
+        )
 
         use_camera_keyframes = (
             scene.view_synthesis_panel_settings.use_camera_keyframes_for_rendering
         )
         selected_cam = get_selected_camera()
         if (
-                use_camera_keyframes
-                and selected_cam is not None
-                and selected_cam.animation_data is not None
+            use_camera_keyframes
+            and selected_cam is not None
+            and selected_cam.animation_data is not None
         ):
             animation_indices = get_object_animation_indices(selected_cam)
         else:
@@ -142,7 +148,9 @@ class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
         cameras = []
         for idx in animation_indices:
             bpy.context.scene.frame_set(idx)
-            camera_relative_to_anchor, centroid_shift = shift_selected_camera_relative_to_anchor(scene)
+            camera_relative_to_anchor, centroid_shift = (
+                shift_selected_camera_relative_to_anchor(scene)
+            )
             cameras.append(camera_relative_to_anchor)
 
         # Call before executing the child process
@@ -158,7 +166,9 @@ class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
         cleanup_tmp_files(temp_json_file, temp_array_file)
 
         log_report(
-            "INFO", "Export view synthesis for current camera with Animation: Done", self
+            "INFO",
+            "Export view synthesis for current camera with Animation: Done",
+            self,
         )
         return {"FINISHED"}
 
@@ -170,6 +180,7 @@ def cleanup_tmp_files(temp_json_file, temp_array_file):
         temp_array_file.close()
         os.unlink(temp_json_file.name)
         os.unlink(temp_array_file.name)
+
 
 def show_image_in_blender(temp_array_file, camera_obj):
     # Call after executing the child process
@@ -185,6 +196,7 @@ def show_image_in_blender(temp_array_file, camera_obj):
     img_np_array_flipped = np.flipud(img_np_array)
     blender_image.pixels = img_np_array_flipped.ravel()
     load_background_image(blender_image, camera_obj.name)
+
 
 def shift_selected_camera_relative_to_anchor(scene):
     anchor_obj = bpy.data.objects[
@@ -206,8 +218,8 @@ def shift_selected_camera_relative_to_anchor(scene):
     camera_obj = get_selected_camera()
     camera_obj_relative_to_anchor = camera_obj.copy()
     camera_obj_relative_to_anchor.matrix_world = (
-            anchor_matrix_world_inverse
-            @ camera_obj_relative_to_anchor.matrix_world
+        anchor_matrix_world_inverse
+        @ camera_obj_relative_to_anchor.matrix_world
     )
 
     camera_relative_to_anchor = get_computer_vision_camera(
@@ -233,16 +245,13 @@ def create_instant_ngp_cmd(scene, output_dp, op=None):
     else:
         assert False
 
-    if (
-            scene.view_synthesis_panel_settings.execution_environment
-            == "CONDA"
-    ):
+    if scene.view_synthesis_panel_settings.execution_environment == "CONDA":
         conda_exe_fp = scene.view_synthesis_panel_settings.conda_exe_fp
         conda_env_name = scene.view_synthesis_panel_settings.conda_env_name
         python_exe_fp = None
     elif (
-            scene.view_synthesis_panel_settings.execution_environment
-            == "DEFAULT PYTHON"
+        scene.view_synthesis_panel_settings.execution_environment
+        == "DEFAULT PYTHON"
     ):
         python_exe_fp = scene.view_synthesis_panel_settings.python_exe_fp
         conda_exe_fp = None
@@ -257,14 +266,22 @@ def create_instant_ngp_cmd(scene, output_dp, op=None):
     additional_system_dps = (
         scene.view_synthesis_panel_settings.additional_system_dps
     )
-    samples_per_pixel = (
-        scene.view_synthesis_panel_settings.samples_per_pixel
+    samples_per_pixel = scene.view_synthesis_panel_settings.samples_per_pixel
+    render_solid_background = (
+        scene.view_synthesis_panel_settings.render_solid_background
     )
+    render_semantic_color = (
+        scene.view_synthesis_panel_settings.render_semantic_color
+    )
+    cuda_device = scene.view_synthesis_panel_settings.cuda_device
 
     parameter_list = ["--load_snapshot", view_synthesis_snapshot_fp]
     parameter_list += ["--temp_json_ifp", temp_json_file.name]
     parameter_list += ["--temp_array_ofp", temp_array_file.name]
     parameter_list += ["--samples_per_pixel", str(samples_per_pixel)]
+    parameter_list += ["--render_solid_background", render_solid_background]
+    parameter_list += ["--render_semantic_color", render_semantic_color]
+    parameter_list += ["--cuda_device", cuda_device]
     if additional_system_dps.strip() != "":
         parameter_list += [
             "--additional_system_dps",

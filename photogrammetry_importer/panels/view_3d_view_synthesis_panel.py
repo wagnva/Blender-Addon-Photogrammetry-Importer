@@ -4,10 +4,12 @@ from bpy.props import (
     EnumProperty,
     IntProperty,
     PointerProperty,
-    BoolProperty
+    BoolProperty,
 )
 from photogrammetry_importer.panels.view_synthesis_operators import (
-    RunViewSynthesisOperator, ExportViewSynthesisOperator, ExportViewSynthesisAnimOperator
+    RunViewSynthesisOperator,
+    ExportViewSynthesisOperator,
+    ExportViewSynthesisAnimOperator,
 )
 from photogrammetry_importer.blender_utility.retrieval_utility import (
     get_selected_camera,
@@ -77,6 +79,21 @@ class ViewSynthesisPanelSettings(bpy.types.PropertyGroup):
         name="Use Camera Keyframes",
         description="Use the Camera Keyframes instead of Animation Frames.",
         default=True,
+    )
+    render_solid_background: BoolProperty(
+        name="Render solid Background",
+        description="Use a solid background color for all areas outside of the learned scene boundaries",
+        default=True,
+    )
+    render_semantic_color: BoolProperty(
+        name="Render semantic false coloring",
+        description="Render the semantic class color instead of the true RGB color",
+        default=False,
+    )
+    cuda_device: IntProperty(
+        name="Cuda Device",
+        description="",
+        default=0,
     )
 
 
@@ -160,20 +177,38 @@ class ViewSynthesisPanel(bpy.types.Panel):
             text="Training Snapshot (Trained Model)",
         )
         row = view_synthesis_box.row()
+        row.prop(
+            settings,
+            "cuda_device",
+            text="Cuda Device",
+        )
+        row = view_synthesis_box.row()
         row.prop(settings, "samples_per_pixel", text="Samples Per Pixel")
 
         row = view_synthesis_box.row()
         row.prop(
             settings, "rotation_anchor_obj_name", text="Rotation Anchor Object"
         )
+        row = view_synthesis_box.row()
+        row.prop(
+            settings, "render_solid_background", text="Render Solid Background"
+        )
+        row = view_synthesis_box.row()
+        row.prop(
+            settings, "render_semantic_color", text="Render Semantic Color"
+        )
 
         view_synthesis_save_box = view_synthesis_box.box()
-        view_synthesis_save_box.label(text="Run View Synthesis for current Camera")
+        view_synthesis_save_box.label(
+            text="Run View Synthesis for current Camera"
+        )
         row = view_synthesis_save_box.row()
         row.operator(RunViewSynthesisOperator.bl_idname)
 
         view_synthesis_export_box = view_synthesis_box.box()
-        view_synthesis_export_box.label(text="Export View Synthesis for current Camera")
+        view_synthesis_export_box.label(
+            text="Export View Synthesis for current Camera"
+        )
         row = view_synthesis_export_box.row()
         row.operator(ExportViewSynthesisOperator.bl_idname)
 
