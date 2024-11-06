@@ -35,8 +35,9 @@ from photogrammetry_importer.process_communication.file_communication import (
 def run_view_synth(scene, save_to_dp=None, op=None):
     log_report("INFO", "Compute view synthesis for current camera: ...", op)
 
+    panel_args = extract_args_from_scene(scene)
     command, temp_json_file, temp_array_file = create_instant_ngp_cmd(
-        scene, output_dp=save_to_dp, op=op
+        panel_args, output_dp=save_to_dp, op=op
     )
 
     camera_relative_to_anchor, centroid_shift = (
@@ -76,7 +77,9 @@ class RunViewSynthesisOperator(bpy.types.Operator):
 
     def execute(self, context):
         """Compute a view synthesis for the current camera."""
-        return run_view_synth(context.scene, op=self)
+        # return run_view_synth(context.scene, op=self)
+        args = extract_args_from_scene(context.scene)
+        return start_view_synth_on_remote(args, context.scene, op=self)
 
 
 class ExportViewSynthesisOperator(bpy.types.Operator, ExportHelper):
@@ -128,8 +131,9 @@ class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
         )
         scene = context.scene
 
+        panel_args = extract_args_from_scene(scene)
         command, temp_json_file, temp_array_file = create_instant_ngp_cmd(
-            scene, self.filepath, op=self
+            panel_args, self.filepath, op=self
         )
 
         use_camera_keyframes = (
@@ -230,7 +234,42 @@ def shift_selected_camera_relative_to_anchor(scene):
     return camera_relative_to_anchor, centroid_shift
 
 
-def create_instant_ngp_cmd(scene, output_dp, op=None):
+def extract_args_from_scene(scene, op=None):
+    args = {}
+    if scene.view_synthesis_panel_settings.execution_environment == "CONDA":
+        args["conda_exe_fp"] = scene.view_synthesis_panel_settings.conda_exe_fp
+        args["conda_env_name"] = scene.view_synthesis_panel_settings.conda_env_name
+        args["python_exe_fp"] = None
+    elif (
+        scene.view_synthesis_panel_settings.execution_environment
+        == "DEFAULT PYTHON"
+    ):
+        args["python_exe_fp"] = scene.view_synthesis_panel_settings.python_exe_fp
+        args["conda_exe_fp"] = None
+        args["conda_env_name"] = None
+
+    args["view_synthesis_exe_or_script_fp"] = (
+        scene.view_synthesis_panel_settings.view_synthesis_executable_fp
+    )
+    args["view_synthesis_snapshot_fp"] = (
+        scene.view_synthesis_panel_settings.view_synthesis_snapshot_fp
+    )
+    args["additional_system_dps"] = (
+        scene.view_synthesis_panel_settings.additional_system_dps
+    )
+    args["samples_per_pixel"] = scene.view_synthesis_panel_settings.samples_per_pixel
+    args["render_solid_background"] = (
+        scene.view_synthesis_panel_settings.render_solid_background
+    )
+    args["render_semantic_color"] = (
+        scene.view_synthesis_panel_settings.render_semantic_color
+    )
+    args["cuda_device"] = scene.view_synthesis_panel_settings.cuda_device
+    
+    return args
+
+
+def create_instant_ngp_cmd(args, output_dp, op=None):
     if sys.platform == "linux":
         temp_json_file = NamedTemporaryFile()
         temp_array_file = NamedTemporaryFile()
@@ -245,67 +284,73 @@ def create_instant_ngp_cmd(scene, output_dp, op=None):
     else:
         assert False
 
-    if scene.view_synthesis_panel_settings.execution_environment == "CONDA":
-        conda_exe_fp = scene.view_synthesis_panel_settings.conda_exe_fp
-        conda_env_name = scene.view_synthesis_panel_settings.conda_env_name
-        python_exe_fp = None
-    elif (
-        scene.view_synthesis_panel_settings.execution_environment
-        == "DEFAULT PYTHON"
-    ):
-        python_exe_fp = scene.view_synthesis_panel_settings.python_exe_fp
-        conda_exe_fp = None
-        conda_env_name = None
-
-    view_synthesis_exe_or_script_fp = (
-        scene.view_synthesis_panel_settings.view_synthesis_executable_fp
-    )
-    view_synthesis_snapshot_fp = (
-        scene.view_synthesis_panel_settings.view_synthesis_snapshot_fp
-    )
-    additional_system_dps = (
-        scene.view_synthesis_panel_settings.additional_system_dps
-    )
-    samples_per_pixel = scene.view_synthesis_panel_settings.samples_per_pixel
-    render_solid_background = (
-        scene.view_synthesis_panel_settings.render_solid_background
-    )
-    render_semantic_color = (
-        scene.view_synthesis_panel_settings.render_semantic_color
-    )
-    cuda_device = scene.view_synthesis_panel_settings.cuda_device
-
-    parameter_list = ["--load_snapshot", view_synthesis_snapshot_fp]
+    parameter_list = ["--load_snapshot", args["view_synthesis_snapshot_fp"]]
     parameter_list += ["--temp_json_ifp", temp_json_file.name]
     parameter_list += ["--temp_array_ofp", temp_array_file.name]
-    parameter_list += ["--samples_per_pixel", str(samples_per_pixel)]
-    if render_solid_background:
+    parameter_list += ["--samples_per_pixel", str(args["samples_per_pixel"])]
+    if args["render_solid_background"]:
         parameter_list += ["--render_solid_background"]
-    if render_semantic_color:
+    if args["render_semantic_color"]:
         parameter_list += ["--render_semantic_color"]
-    parameter_list += ["--cuda_device", str(cuda_device)]
-    if additional_system_dps.strip() != "":
+    parameter_list += ["--cuda_device", str(args["cuda_device"])]
+    if args["additional_system_dps"].strip() != "":
         parameter_list += [
             "--additional_system_dps",
-            additional_system_dps,
+            args["additional_system_dps"],
         ]
     if output_dp is not None and output_dp.strip() != "":
         parameter_list += [
             "--additional_output_dp",
             output_dp,
         ]
-    assert os.path.isfile(view_synthesis_exe_or_script_fp)
+    assert os.path.isfile(args["view_synthesis_exe_or_script_fp"])
     assert os.path.isfile(temp_json_file.name)
     assert os.path.isfile(temp_array_file.name)
 
     command = create_subprocess_command(
-        view_synthesis_exe_or_script_fp,
+        args["view_synthesis_exe_or_script_fp"],
         parameter_list,
-        python_exe_fp=python_exe_fp,
-        conda_exe_fp=conda_exe_fp,
-        conda_env_name=conda_env_name,
+        python_exe_fp=args["python_exe_fp"],
+        conda_exe_fp=args["conda_exe_fp"],
+        conda_env_name=args["conda_env_name"],
     )
     cmd_call = " ".join(command)
     log_report("INFO", cmd_call, op)
 
     return command, temp_json_file, temp_array_file
+
+
+def start_view_synth_on_remote(panel_args, scene, op=None):
+    log_report("INFO", "Compute view synthesis for current camera: ...", op)
+
+    import spur
+    
+    # connect to remote server
+    shell = spur.SshShell(
+        hostname="10.21.1.227",
+        username="val60188",
+        password="server",
+        # shell_type=spur.ssh.ShellTypes.minimal
+    )
+    
+    
+
+    # upload cam files to server
+    camera_relative_to_anchor, centroid_shift = (
+        shift_selected_camera_relative_to_anchor(scene)
+    )
+
+
+    # run view synth on remote
+    result = shell.run(["/home/val60188/miniconda3/bin/conda", "run", "-n", "rs", "python", "-c", "from photogrammetry_importer.panels.view_synthesis_operators import test", "test()"], cwd="/mnt/DATA3-2TB/val60188/blender/Blender-Addon-Photogrammetry-Importer")
+    # result = shell.run(["", ";", "conda", "run", "-n", "rs", "\"python -c 'return \"Test\"'\""])
+    print(result.output)
+
+    # copy extracted image back to host
+
+    
+    
+    log_report("INFO", "Compute view synthesis for current camera: Done", op)
+    return {"FINISHED"}
+
+

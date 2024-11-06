@@ -304,6 +304,11 @@ class OptionalDependencyManager:
                 package_name="pyntcloud",
                 import_name="pyntcloud",
             ),
+            OptionalDependency(
+                gui_name="Spur",
+                package_name="spur",
+                import_name="spur",
+            ),
         )
 
     def install_dependencies(self, dependency_package_name="", op=None):
