@@ -279,9 +279,11 @@ def create_instant_ngp_cmd(scene, output_dp, op=None):
     parameter_list += ["--temp_json_ifp", temp_json_file.name]
     parameter_list += ["--temp_array_ofp", temp_array_file.name]
     parameter_list += ["--samples_per_pixel", str(samples_per_pixel)]
-    parameter_list += ["--render_solid_background", render_solid_background]
-    parameter_list += ["--render_semantic_color", render_semantic_color]
-    parameter_list += ["--cuda_device", cuda_device]
+    if render_solid_background:
+        parameter_list += ["--render_solid_background"]
+    if render_semantic_color:
+        parameter_list += ["--render_semantic_color"]
+    parameter_list += ["--cuda_device", str(cuda_device)]
     if additional_system_dps.strip() != "":
         parameter_list += [
             "--additional_system_dps",
@@ -292,7 +294,6 @@ def create_instant_ngp_cmd(scene, output_dp, op=None):
             "--additional_output_dp",
             output_dp,
         ]
-
     assert os.path.isfile(view_synthesis_exe_or_script_fp)
     assert os.path.isfile(temp_json_file.name)
     assert os.path.isfile(temp_array_file.name)
