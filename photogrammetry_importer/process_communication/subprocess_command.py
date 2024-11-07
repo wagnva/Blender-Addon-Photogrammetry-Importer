@@ -10,7 +10,7 @@ def create_subprocess_command(
     conda_env_name=None,
 ):
     """Create a command to execute a script with a Python subprocess."""
-    assert os.path.isfile(script_fp)
+    # assert os.path.isfile(script_fp)
     if parameter_list is None:
         parameter_list = []
 

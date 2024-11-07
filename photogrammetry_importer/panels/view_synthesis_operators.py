@@ -296,16 +296,16 @@ def create_instant_ngp_cmd(args, output_dp, op=None):
     if args["additional_system_dps"].strip() != "":
         parameter_list += [
             "--additional_system_dps",
-            args["additional_system_dps"],
+            "\"" + args["additional_system_dps"] + "\"",
         ]
     if output_dp is not None and output_dp.strip() != "":
         parameter_list += [
             "--additional_output_dp",
             output_dp,
         ]
-    assert os.path.isfile(args["view_synthesis_exe_or_script_fp"])
-    assert os.path.isfile(temp_json_file.name)
-    assert os.path.isfile(temp_array_file.name)
+    # assert os.path.isfile(args["view_synthesis_exe_or_script_fp"])
+    # assert os.path.isfile(temp_json_file.name)
+    # assert os.path.isfile(temp_array_file.name)
 
     command = create_subprocess_command(
         args["view_synthesis_exe_or_script_fp"],
@@ -324,6 +324,7 @@ def start_view_synth_on_remote(panel_args, scene, op=None):
     log_report("INFO", "Compute view synthesis for current camera: ...", op)
 
     import spur
+    import shutil
     
     # connect to remote server
     shell = spur.SshShell(
@@ -332,23 +333,66 @@ def start_view_synth_on_remote(panel_args, scene, op=None):
         password="server",
         # shell_type=spur.ssh.ShellTypes.minimal
     )
-    
-    
 
-    # upload cam files to server
+
+    command, temp_json_file, temp_array_file = create_instant_ngp_cmd(
+        panel_args, output_dp=None, op=op
+    )
+
     camera_relative_to_anchor, centroid_shift = (
         shift_selected_camera_relative_to_anchor(scene)
     )
 
+    # Call before executing the child process
+    InstantNGPFileHandler.write_instant_ngp_file(
+        temp_json_file.name,
+        [camera_relative_to_anchor],
+        ref_centroid_shift=centroid_shift,
+    )
+
+
+    # upload files to server
+    tmp_dp = "/mnt/DATA3-2TB/val60188/blender/tmp"
+    json_fp = f"{tmp_dp}/tmp1"
+    img_fp = f"{tmp_dp}/tmp2"
+
+    with shell.open(json_fp, "wtb") as remote_file:
+        with open(temp_json_file.name, "rb") as local_file:
+            shutil.copyfileobj(local_file, remote_file)
+
+
+    cmd_call = " ".join(command).replace(temp_json_file.name, json_fp).replace(temp_array_file.name, img_fp)
+    args = {
+        "json_fp": json_fp,
+        "img_fp": img_fp,
+        "cmd": cmd_call
+    }
+
+    args_str = []
+    for key, value in args.items():
+        args_str.append(f"{key}='{value}'") 
+    args_str = ",".join(args_str)
+
+    print("cmd_call:", cmd_call)
 
     # run view synth on remote
-    result = shell.run(["/home/val60188/miniconda3/bin/conda", "run", "-n", "rs", "python", "-c", "from photogrammetry_importer.panels.view_synthesis_operators import test", "test()"], cwd="/mnt/DATA3-2TB/val60188/blender/Blender-Addon-Photogrammetry-Importer")
-    # result = shell.run(["", ";", "conda", "run", "-n", "rs", "\"python -c 'return \"Test\"'\""])
-    print(result.output)
+    result = shell.run(["/home/val60188/miniconda3/bin/conda", "run", "-n", "rs", 
+                        "python", "-c", f"from remote_view_synth import run; run({args_str})"], 
+                       cwd="/mnt/DATA3-2TB/val60188/blender/Blender-Addon-Photogrammetry-Importer")
+    # print("Err Code", result.return_code)
+    # print("Returned: ", result.output)
+    # print("Errs: ", result.stderr_output)
 
-    # copy extracted image back to host
-
+    # copy extracted image back
+    tmp_dp = "/mnt/DATA3-2TB/val60188/blender/tmp"
+    with shell.open(img_fp, "rb") as remote_file:
+        with open(temp_array_file.name, "wb") as local_file:
+            shutil.copyfileobj(remote_file, local_file)
     
+    # show image in blender, then delete temp files
+    show_image_in_blender(temp_array_file, get_selected_camera())
+    cleanup_tmp_files(temp_json_file, temp_array_file)
+
     
     log_report("INFO", "Compute view synthesis for current camera: Done", op)
     return {"FINISHED"}
