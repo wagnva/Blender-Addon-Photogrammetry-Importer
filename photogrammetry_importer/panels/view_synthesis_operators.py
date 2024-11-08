@@ -325,12 +325,17 @@ def start_view_synth_on_remote(panel_args, scene, op=None):
 
     import spur
     import shutil
+    import json
+    
+    # get creds
+    with open("c:\\Users\\val60188\\Documents\\Blender\\creds.json", "r") as fp:
+        creds = json.load(fp)
     
     # connect to remote server
     shell = spur.SshShell(
         hostname="10.21.1.227",
-        username="val60188",
-        password="server",
+        username=creds["username"],
+        password=creds["pwd"],
         # shell_type=spur.ssh.ShellTypes.minimal
     )
 
