@@ -385,8 +385,10 @@ def start_view_synth_on_remote(panel_args, scene, op=None):
                         "python", "-c", f"from remote_view_synth import run; run({args_str})"], 
                        cwd="/mnt/DATA3-2TB/val60188/blender/Blender-Addon-Photogrammetry-Importer")
     # print("Err Code", result.return_code)
-    # print("Returned: ", result.output)
-    # print("Errs: ", result.stderr_output)
+    out = result.output.decode('utf-8').replace("\\n", "\n")
+    errs = result.stderr_output.decode('utf-8').replace("\\n", "\n")
+    print("Returned: ", out)
+    print("Errs: ", errs)
 
     # copy extracted image back
     tmp_dp = "/mnt/DATA3-2TB/val60188/blender/tmp"
