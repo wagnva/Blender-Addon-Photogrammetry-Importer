@@ -6,6 +6,7 @@ import bpy
 from mathutils import Matrix
 from tempfile import NamedTemporaryFile
 from bpy_extras.io_utils import ExportHelper
+from datetime import datetime
 
 
 from photogrammetry_importer.utility.np_utility import (
@@ -102,7 +103,9 @@ class ExportViewSynthesisOperator(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         """Compute a view synthesis for the current camera."""
-        return run_view_synth(context.scene, save_to_dp=self.filepath, op=self)
+        # return run_view_synth(context.scene, save_to_dp=self.filepath, op=self)
+        args = extract_args_from_scene(context.scene)
+        return start_view_synth_on_remote(args, context.scene, save_to_dp=self.filepath, op=self)
 
 
 class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
@@ -320,7 +323,7 @@ def create_instant_ngp_cmd(args, output_dp, op=None):
     return command, temp_json_file, temp_array_file
 
 
-def start_view_synth_on_remote(panel_args, scene, op=None):
+def start_view_synth_on_remote(panel_args, scene, save_to_dp=None, op=None):
     log_report("INFO", "Compute view synthesis for current camera: ...", op)
 
     import spur
@@ -395,6 +398,20 @@ def start_view_synth_on_remote(panel_args, scene, op=None):
     with shell.open(img_fp, "rb") as remote_file:
         with open(temp_array_file.name, "wb") as local_file:
             shutil.copyfileobj(remote_file, local_file)
+        if save_to_dp is not None:
+            # copy to save_to_dp
+            img_np_array = read_np_array_from_file(
+                temp_array_file.name, use_pickle=False
+            )
+            img_np_array = (img_np_array * 255.0).astype(np.uint8)
+            timestr = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            ofp = os.path.join(save_to_dp, timestr + ".png")
+            os.makedirs(os.path.dirname(ofp), exist_ok=True )
+            from PIL import Image
+
+            img = Image.fromarray(img_np_array)
+            img.save(ofp)
+            log_report("INFO", f"Saved image to {ofp}", op)
     
     # show image in blender, then delete temp files
     show_image_in_blender(temp_array_file, get_selected_camera())
