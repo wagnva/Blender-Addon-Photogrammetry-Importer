@@ -80,7 +80,10 @@ class RunViewSynthesisOperator(bpy.types.Operator):
         """Compute a view synthesis for the current camera."""
         # return run_view_synth(context.scene, op=self)
         args = extract_args_from_scene(context.scene)
-        return start_view_synth_on_remote(args, context.scene, op=self)
+        camera_relative_to_anchor, centroid_shift = (
+            shift_selected_camera_relative_to_anchor(context.scene)
+        )
+        return start_view_synth_on_remote(args, [camera_relative_to_anchor], centroid_shift, op=self)
 
 
 class ExportViewSynthesisOperator(bpy.types.Operator, ExportHelper):
@@ -105,10 +108,15 @@ class ExportViewSynthesisOperator(bpy.types.Operator, ExportHelper):
         """Compute a view synthesis for the current camera."""
         # return run_view_synth(context.scene, save_to_dp=self.filepath, op=self)
         args = extract_args_from_scene(context.scene)
-        return start_view_synth_on_remote(args, context.scene, save_to_dp=self.filepath, op=self)
+
+        camera_relative_to_anchor, centroid_shift = (
+            shift_selected_camera_relative_to_anchor(context.scene)
+        )
+
+        return start_view_synth_on_remote(args, [camera_relative_to_anchor], centroid_shift, save_to_dp=self.filepath, op=self)
 
 
-class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
+class ExportViewSynthesisAnimOperator(bpy.types.Operator):
     """An Operator to use the animation of the camera to render the NeRF Model"""
 
     bl_idname = "photogrammetry_importer.export_view_synthesis_anim"
@@ -134,11 +142,8 @@ class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
         )
         scene = context.scene
 
-        panel_args = extract_args_from_scene(scene)
-        command, temp_json_file, temp_array_file = create_instant_ngp_cmd(
-            panel_args, self.filepath, op=self
-        )
-
+        args = extract_args_from_scene(scene)
+       
         use_camera_keyframes = (
             scene.view_synthesis_panel_settings.use_camera_keyframes_for_rendering
         )
@@ -160,21 +165,11 @@ class ExportViewSynthesisAnimOperator(bpy.types.Operator, ExportHelper):
             )
             cameras.append(camera_relative_to_anchor)
 
-        # Call before executing the child process
-        InstantNGPFileHandler.write_instant_ngp_file(
-            temp_json_file.name,
-            cameras,
-            ref_centroid_shift=centroid_shift,
-        )
-
-        child_process = subprocess.Popen(command)
-        child_process.communicate()
-
-        cleanup_tmp_files(temp_json_file, temp_array_file)
+        start_view_synth_on_remote(args, cameras, centroid_shift, op=self)
 
         log_report(
             "INFO",
-            "Export view synthesis for current camera with Animation: Done",
+            "Export view synthesis for current camera with Animation: Started on Remote",
             self,
         )
         return {"FINISHED"}
@@ -323,7 +318,8 @@ def create_instant_ngp_cmd(args, output_dp, op=None):
     return command, temp_json_file, temp_array_file
 
 
-def start_view_synth_on_remote(panel_args, scene, save_to_dp=None, op=None):
+
+def start_view_synth_on_remote(panel_args, cameras, centroid_shift, save_to_dp=None, op=None):
     log_report("INFO", "Compute view synthesis for current camera: ...", op)
 
     import spur
@@ -342,37 +338,42 @@ def start_view_synth_on_remote(panel_args, scene, save_to_dp=None, op=None):
         # shell_type=spur.ssh.ShellTypes.minimal
     )
 
+    remote_base_dp = "/mnt/DATA3-2TB/val60188/blender"
+    cwd = "/mnt/DATA3-2TB/val60188/blender/Blender-Addon-Photogrammetry-Importer"
+
+    remote_output_dp = None
+    # if rendering video, store outputs on server in a permanent location
+    video_rendering = len(cameras) > 1
+    if video_rendering:
+        remote_output_dp = f"{remote_base_dp}/output"
 
     command, temp_json_file, temp_array_file = create_instant_ngp_cmd(
-        panel_args, output_dp=None, op=op
-    )
-
-    camera_relative_to_anchor, centroid_shift = (
-        shift_selected_camera_relative_to_anchor(scene)
+        panel_args, output_dp=remote_output_dp, op=op
     )
 
     # Call before executing the child process
     InstantNGPFileHandler.write_instant_ngp_file(
         temp_json_file.name,
-        [camera_relative_to_anchor],
+        cameras,
         ref_centroid_shift=centroid_shift,
     )
 
-
     # upload files to server
-    tmp_dp = "/mnt/DATA3-2TB/val60188/blender/tmp"
-    json_fp = f"{tmp_dp}/tmp1"
-    img_fp = f"{tmp_dp}/tmp2"
+    json_fp = f"{remote_base_dp}/tmp/json"
+    img_dp = f"{remote_base_dp}/tmp/images"
 
     with shell.open(json_fp, "wtb") as remote_file:
         with open(temp_json_file.name, "rb") as local_file:
             shutil.copyfileobj(local_file, remote_file)
 
+    # make sure temp directory exists and is empty (by deleting first if it already exists)
+    shell.run(["bash", "-c", f'[ -d "{img_dp}" ] && rm -r "{img_dp}"'])
+    shell.run(["mkdir", "-p", img_dp])
 
-    cmd_call = " ".join(command).replace(temp_json_file.name, json_fp).replace(temp_array_file.name, img_fp)
+    cmd_call = " ".join(command).replace(temp_json_file.name, json_fp).replace(temp_array_file.name, img_dp)
     args = {
         "json_fp": json_fp,
-        "img_fp": img_fp,
+        "img_fp": img_dp,
         "cmd": cmd_call
     }
 
@@ -381,42 +382,66 @@ def start_view_synth_on_remote(panel_args, scene, save_to_dp=None, op=None):
         args_str.append(f"{key}='{value}'") 
     args_str = ",".join(args_str)
 
+
     print("cmd_call:", cmd_call)
 
-    # run view synth on remote
-    result = shell.run(["/home/val60188/miniconda3/bin/conda", "run", "-n", "rs", 
-                        "python", "-c", f"from remote_view_synth import run; run({args_str})"], 
-                       cwd="/mnt/DATA3-2TB/val60188/blender/Blender-Addon-Photogrammetry-Importer")
-    # print("Err Code", result.return_code)
-    out = result.output.decode('utf-8').replace("\\n", "\n")
-    errs = result.stderr_output.decode('utf-8').replace("\\n", "\n")
-    print("Returned: ", out)
-    print("Errs: ", errs)
+    cmd_list = ["/home/val60188/miniconda3/bin/conda", "run", "-n", "rs", 
+                        "python", "-c", f"from remote_view_synth import run; run({args_str})"]
+    if video_rendering:
+        # run view synth on remote, dont wait for result
+        result = shell.spawn(cmd_list, 
+                        cwd=cwd)
+    else:
+        # run view synth on remote, wait for result
+        result = shell.run(cmd_list, 
+                        cwd=cwd)
+    
+        # print("Err Code", result.return_code)
+        out = result.output.decode('utf-8').replace("\\n", "\n")
+        errs = result.stderr_output.decode('utf-8').replace("\\n", "\n")
+        print("Returned: ", out)
+        print("Errs: ", errs)
 
     # copy extracted image back
-    tmp_dp = "/mnt/DATA3-2TB/val60188/blender/tmp"
-    with shell.open(img_fp, "rb") as remote_file:
-        with open(temp_array_file.name, "wb") as local_file:
-            shutil.copyfileobj(remote_file, local_file)
-        if save_to_dp is not None:
-            # copy to save_to_dp
-            img_np_array = read_np_array_from_file(
-                temp_array_file.name, use_pickle=False
-            )
-            img_np_array = (img_np_array * 255.0).astype(np.uint8)
-            timestr = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-            ofp = os.path.join(save_to_dp, timestr + ".png")
-            os.makedirs(os.path.dirname(ofp), exist_ok=True )
-            from PIL import Image
+    if not video_rendering:
+        # get number of images files created by view_synth
+        img_files = shell.run(["ls", img_dp]).output.decode('utf-8').splitlines()
+        timestr = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        for index, img_name in enumerate(img_files):
+            img_fp = img_dp + "/" + img_name  # since on linux remote
+            
+            if index == 0:
+                with shell.open(img_fp, "rb") as remote_file:
+                    with open(temp_array_file.name, "wb") as local_file:
+                        shutil.copyfileobj(remote_file, local_file)
+            
+            if save_to_dp is not None:
+                # copy to save_to_dp as .npy
+                tmp_local = os.path.join(save_to_dp, "tmp_array.npy")
+                with shell.open(img_fp, "rb") as remote_file:
+                    with open(tmp_local, "wb") as local_file:
+                        shutil.copyfileobj(remote_file, local_file)
+                
+                # rewrite as image
+                img_np_array = read_np_array_from_file(
+                    tmp_local, use_pickle=False
+                )
+                img_np_array = (img_np_array * 255.0).astype(np.uint8)
+                ofp = os.path.join(save_to_dp, timestr + f"_{index}.png")
+                os.makedirs(os.path.dirname(ofp), exist_ok=True )
+                from PIL import Image
 
-            img = Image.fromarray(img_np_array)
-            img.save(ofp)
-            log_report("INFO", f"Saved image to {ofp}", op)
-    
-    # show image in blender, then delete temp files
-    show_image_in_blender(temp_array_file, get_selected_camera())
-    cleanup_tmp_files(temp_json_file, temp_array_file)
+                img = Image.fromarray(img_np_array)
+                img.save(ofp)
+                os.remove(tmp_local)
+        
 
+        # report results for last saved image
+        log_report("INFO", f"Saved image to {ofp}", op)
+        
+        # show image in blender, then delete temp files
+        show_image_in_blender(temp_array_file, get_selected_camera())
+        cleanup_tmp_files(temp_json_file, temp_array_file)
     
     log_report("INFO", "Compute view synthesis for current camera: Done", op)
     return {"FINISHED"}
